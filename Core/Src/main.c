@@ -86,9 +86,6 @@ void StartAtcTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 // Fungsi-fungsi untuk ATC
-static void DWT_Init(void);
-static void delay_us(uint32_t us);
-static void Stepper_Pulse(void);
 static void ATC_Rotate(ATCRotationDirection_t direction);
 static uint8_t Read_Tool_Position(void);
 static void Update_Newker_Tool_Output(uint8_t tool_number);
@@ -148,7 +145,7 @@ int main(void)
   /* USER CODE END RTOS_MUTEX */
 
   /* Create the semaphores(s) */
-  
+
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
   /* creation of ATCLockSema */
@@ -405,54 +402,69 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+// ---- Fungsi-fungsi ATC yang Diperbarui ----
+
 /**
- * @brief Inisialisasi DWT (Data Watchpoint and Trace) untuk delay presisi tinggi.
+ * @brief Memulai generasi PWM untuk stepper.
+ * @param frequency_hz Kecepatan dalam pulsa per detik (Hz).
  */
-static void DWT_Init(void)
+static void ATC_Start_Rotation_PWM(uint16_t frequency_hz)
 {
-  if (!(CoreDebug->DEMCR & CoreDebug_DEMCR_TRCENA_Msk))
-  {
-    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-    DWT->CYCCNT = 0;
-    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-  }
+  if (frequency_hz == 0)
+    return;
+
+  // Timer clock (PCLK1 * 2) = 72MHz
+  uint32_t tim_clock = HAL_RCC_GetPCLK1Freq() * 2;
+  uint32_t prescaler = (tim_clock / (frequency_hz * 1000)) - 1; // Cari prescaler untuk resolusi baik
+  if (prescaler > 65535)
+    prescaler = 65535;
+
+  uint32_t period = (tim_clock / (frequency_hz * (prescaler + 1))) - 1;
+  if (period > 65535)
+    period = 65535;
+
+  __HAL_TIM_SET_PRESCALER(&htim1, prescaler);
+  __HAL_TIM_SET_AUTORELOAD(&htim1, period);
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, period / 2); // 50% duty cycle
+
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 }
 
 /**
- * @brief Fungsi delay dalam microsecond menggunakan DWT.
+ * @brief Menghentikan PWM stepper.
  */
-static void delay_us(uint32_t us)
+static void ATC_Stop_Rotation_PWM(void)
 {
-  uint32_t start_tick = DWT->CYCCNT;
-  uint32_t delay_ticks = us * (SystemCoreClock / 1000000);
-  while ((DWT->CYCCNT - start_tick) < delay_ticks)
-    ;
+  HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
 }
 
 /**
- * @brief Fungsi untuk menghasilkan satu pulsa pada motor stepper.
+ * @brief Membaca status input dengan mempertimbangkan inversi.
  */
-static void Stepper_Pulse(void)
+static GPIO_PinState Read_Input_Pin(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin)
 {
-  HAL_GPIO_WritePin(STEPPER_PULSE_GPIO_Port, STEPPER_PULSE_Pin, GPIO_PIN_SET);
-  delay_us(STEPPER_PULSE_DELAY_US);
-  HAL_GPIO_WritePin(STEPPER_PULSE_GPIO_Port, STEPPER_PULSE_Pin, GPIO_PIN_RESET);
-  delay_us(STEPPER_PULSE_DELAY_US);
+  GPIO_PinState state = HAL_GPIO_ReadPin(GPIOx, GPIO_Pin);
+  return g_settings.invert_input ? !state : state;
 }
 
 /**
- * @brief Membaca status 4 pin proxy dan mengembalikan nomor tool.
- * @retval Nomor tool (1-8), atau 0 jika kombinasi tidak valid.
+ * @brief Menulis ke pin output dengan mempertimbangkan inversi.
+ */
+static void Write_Output_Pin(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin, GPIO_PinState PinState)
+{
+  HAL_GPIO_WritePin(GPIOx, GPIO_Pin, g_settings.invert_output ? !PinState : PinState);
+}
+
+/**
+ * @brief Membaca posisi tool dari sensor proxy.
  */
 static uint8_t Read_Tool_Position(void)
 {
-  // Membaca status pin. Asumsi aktif LOW (sensor NPN), jadi kita balik logikanya.
-  bool a = HAL_GPIO_ReadPin(PROXY_TOOL_A_GPIO_Port, PROXY_TOOL_A_Pin) == GPIO_PIN_RESET;
-  bool b = HAL_GPIO_ReadPin(PROXY_TOOL_B_GPIO_Port, PROXY_TOOL_B_Pin) == GPIO_PIN_RESET;
-  bool c = HAL_GPIO_ReadPin(PROXY_TOOL_C_GPIO_Port, PROXY_TOOL_C_Pin) == GPIO_PIN_RESET;
-  bool d = HAL_GPIO_ReadPin(PROXY_TOOL_D_GPIO_Port, PROXY_TOOL_D_Pin) == GPIO_PIN_RESET;
+  bool a = Read_Input_Pin(PROXY_TOOL_A_GPIO_Port, PROXY_TOOL_A_Pin) == GPIO_PIN_SET;
+  bool b = Read_Input_Pin(PROXY_TOOL_B_GPIO_Port, PROXY_TOOL_B_Pin) == GPIO_PIN_SET;
+  bool c = Read_Input_Pin(PROXY_TOOL_C_GPIO_Port, PROXY_TOOL_C_Pin) == GPIO_PIN_SET;
+  bool d = Read_Input_Pin(PROXY_TOOL_D_GPIO_Port, PROXY_TOOL_D_Pin) == GPIO_PIN_SET;
 
-  // Logika berdasarkan tabel yang diberikan
   if (!a && b && !c && !d)
     return 1;
   if (a && !b && !c && !d)
@@ -473,83 +485,7 @@ static uint8_t Read_Tool_Position(void)
   return 0; // Kombinasi tidak dikenal
 }
 
-/**
- * @brief Mengupdate pin output ke NEWKER sesuai nomor tool.
- * @param tool_number: Nomor tool yang aktif (1-8).
- */
-static void Update_Newker_Tool_Output(uint8_t tool_number)
-{
-  // Reset semua pin output tool
-  HAL_GPIO_WritePin(GPIOC, NEWKER_TOOL_1_Pin | NEWKER_TOOL_2_Pin | NEWKER_TOOL_3_Pin | NEWKER_TOOL_4_Pin | NEWKER_TOOL_5_Pin | NEWKER_TOOL_6_Pin | NEWKER_TOOL_7_Pin | NEWKER_TOOL_8_Pin, GPIO_PIN_RESET);
-
-  switch (tool_number)
-  {
-  case 1:
-    HAL_GPIO_WritePin(NEWKER_TOOL_1_GPIO_Port, NEWKER_TOOL_1_Pin, GPIO_PIN_SET);
-    break;
-  case 2:
-    HAL_GPIO_WritePin(NEWKER_TOOL_2_GPIO_Port, NEWKER_TOOL_2_Pin, GPIO_PIN_SET);
-    break;
-  case 3:
-    HAL_GPIO_WritePin(NEWKER_TOOL_3_GPIO_Port, NEWKER_TOOL_3_Pin, GPIO_PIN_SET);
-    break;
-  case 4:
-    HAL_GPIO_WritePin(NEWKER_TOOL_4_GPIO_Port, NEWKER_TOOL_4_Pin, GPIO_PIN_SET);
-    break;
-  case 5:
-    HAL_GPIO_WritePin(NEWKER_TOOL_5_GPIO_Port, NEWKER_TOOL_5_Pin, GPIO_PIN_SET);
-    break;
-  case 6:
-    HAL_GPIO_WritePin(NEWKER_TOOL_6_GPIO_Port, NEWKER_TOOL_6_Pin, GPIO_PIN_SET);
-    break;
-  case 7:
-    HAL_GPIO_WritePin(NEWKER_TOOL_7_GPIO_Port, NEWKER_TOOL_7_Pin, GPIO_PIN_SET);
-    break;
-  case 8:
-    HAL_GPIO_WritePin(NEWKER_TOOL_8_GPIO_Port, NEWKER_TOOL_8_Pin, GPIO_PIN_SET);
-    break;
-  default:
-    break; // Tidak melakukan apa-apa jika tool tidak valid
-  }
-}
-
-/**
- * @brief Memutar ATC sampai tool berikutnya terdeteksi.
- * @param direction: Arah putaran (CW atau CCW).
- */
-static void ATC_Rotate(ATCRotationDirection_t direction)
-{
-  if (direction == ATC_NO_ROTATION)
-    return;
-
-  // Set arah motor
-  GPIO_PinState dir_pin_state = (direction == ATC_CW) ? GPIO_PIN_SET : GPIO_PIN_RESET;
-  HAL_GPIO_WritePin(STEPPER_DIR_GPIO_Port, STEPPER_DIR_Pin, dir_pin_state);
-
-  // Aktifkan motor
-  HAL_GPIO_WritePin(STEPPER_ENA_GPIO_Port, STEPPER_ENA_Pin, GPIO_PIN_RESET); // Asumsi ENA aktif LOW
-  osDelay(10);                                                               // Tunggu sebentar setelah enable
-
-  uint8_t initial_tool = Read_Tool_Position();
-  uint8_t current_tool = initial_tool;
-
-  printf("ATC Rotating %s from tool %d...\r\n", (direction == ATC_CW) ? "CW" : "CCW", initial_tool);
-
-  // Putar motor sampai nomor tool berubah
-  while (current_tool == initial_tool || current_tool == 0)
-  {
-    Stepper_Pulse();
-    current_tool = Read_Tool_Position();
-    // Tambahkan timeout di sini jika perlu untuk mencegah loop tak terbatas
-  }
-
-  // Matikan motor
-  HAL_GPIO_WritePin(STEPPER_ENA_GPIO_Port, STEPPER_ENA_Pin, GPIO_PIN_SET);
-
-  g_current_tool = current_tool;
-  Update_Newker_Tool_Output(g_current_tool);
-  printf("ATC Rotation finished. Current tool: %d\r\n", g_current_tool);
-}
+// ... (Update_Newker_Tool_Output, Get_Lock_Status, ATC_Unlock, ATC_Lock disesuaikan untuk menggunakan Write_Output_Pin dan Read_Input_Pin) ...
 
 /**
  * @brief Mendapatkan status lock/unlock dari sensor.
@@ -558,7 +494,7 @@ static void ATC_Rotate(ATCRotationDirection_t direction)
 static ATCLockState_t Get_Lock_Status(void)
 {
   // Asumsi PROXY_LOCK aktif (LOW) saat terkunci
-  if (HAL_GPIO_ReadPin(PROXY_LOCK_GPIO_Port, PROXY_LOCK_Pin) == GPIO_PIN_RESET)
+  if (Read_Input_Pin(PROXY_LOCK_GPIO_Port, PROXY_LOCK_Pin) == GPIO_PIN_RESET)
   {
     return ATC_LOCKED;
   }
@@ -572,7 +508,7 @@ static void ATC_Unlock(void)
 {
   printf("ATC Unlocking...\r\n");
   // Cek apakah ATC sudah pada posisi yang benar untuk di-unlock
-  if (HAL_GPIO_ReadPin(PROXY_POSITION_GPIO_Port, PROXY_POSITION_Pin) == GPIO_PIN_SET)
+  if (Read_Input_Pin(PROXY_POSITION_GPIO_Port, PROXY_POSITION_Pin) == GPIO_PIN_SET)
   {
     printf("Error: ATC not in correct position to unlock!\r\n");
     // Mungkin perlu berputar sedikit untuk mencari posisi
@@ -580,14 +516,14 @@ static void ATC_Unlock(void)
   }
 
   // Aktifkan solenoid unlock
-  HAL_GPIO_WritePin(OUT_ATC_LOCK_GPIO_Port, OUT_ATC_LOCK_Pin, GPIO_PIN_SET); // Asumsi SET = UNLOCK
+  Write_Output_Pin(OUT_ATC_LOCK_GPIO_Port, OUT_ATC_LOCK_Pin, GPIO_PIN_SET); // Asumsi SET = UNLOCK
 
   // Tunggu sinyal dari PROXY_LOCK yang menandakan sudah unlock
   if (osSemaphoreAcquire(ATCLockSemaHandle, 1000) != osOK)
   { // Timeout 1 detik
     printf("Error: ATC Unlock timeout!\r\n");
     // Matikan solenoid jika timeout
-    HAL_GPIO_WritePin(OUT_ATC_LOCK_GPIO_Port, OUT_ATC_LOCK_Pin, GPIO_PIN_RESET);
+    Write_Output_Pin(OUT_ATC_LOCK_GPIO_Port, OUT_ATC_LOCK_Pin, GPIO_PIN_RESET);
   }
   else
   {
@@ -603,7 +539,7 @@ static void ATC_Lock(void)
 {
   printf("ATC Locking...\r\n");
   // Matikan solenoid (atau aktifkan solenoid lock jika sistemnya berbeda)
-  HAL_GPIO_WritePin(OUT_ATC_LOCK_GPIO_Port, OUT_ATC_LOCK_Pin, GPIO_PIN_RESET); // Asumsi RESET = LOCK
+  Write_Output_Pin(OUT_ATC_LOCK_GPIO_Port, OUT_ATC_LOCK_Pin, GPIO_PIN_RESET); // Asumsi RESET = LOCK
 
   // Tunggu sinyal dari PROXY_LOCK yang menandakan sudah lock
   if (osSemaphoreAcquire(ATCLockSemaHandle, 1000) != osOK)
@@ -618,22 +554,131 @@ static void ATC_Lock(void)
 }
 
 /**
+ * @brief Mengupdate pin output ke NEWKER sesuai nomor tool.
+ * @param tool_number: Nomor tool yang aktif (1-8).
+ */
+static void Update_Newker_Tool_Output(uint8_t tool_number)
+{
+  // Reset semua pin output tool
+  Write_Output_Pin(GPIOC, NEWKER_TOOL_1_Pin | NEWKER_TOOL_2_Pin | NEWKER_TOOL_3_Pin | NEWKER_TOOL_4_Pin | NEWKER_TOOL_5_Pin | NEWKER_TOOL_6_Pin | NEWKER_TOOL_7_Pin | NEWKER_TOOL_8_Pin, GPIO_PIN_RESET);
+
+  switch (tool_number)
+  {
+  case 1:
+    Write_Output_Pin(NEWKER_TOOL_1_GPIO_Port, NEWKER_TOOL_1_Pin, GPIO_PIN_SET);
+    break;
+  case 2:
+    Write_Output_Pin(NEWKER_TOOL_2_GPIO_Port, NEWKER_TOOL_2_Pin, GPIO_PIN_SET);
+    break;
+  case 3:
+    Write_Output_Pin(NEWKER_TOOL_3_GPIO_Port, NEWKER_TOOL_3_Pin, GPIO_PIN_SET);
+    break;
+  case 4:
+    Write_Output_Pin(NEWKER_TOOL_4_GPIO_Port, NEWKER_TOOL_4_Pin, GPIO_PIN_SET);
+    break;
+  case 5:
+    Write_Output_Pin(NEWKER_TOOL_5_GPIO_Port, NEWKER_TOOL_5_Pin, GPIO_PIN_SET);
+    break;
+  case 6:
+    Write_Output_Pin(NEWKER_TOOL_6_GPIO_Port, NEWKER_TOOL_6_Pin, GPIO_PIN_SET);
+    break;
+  case 7:
+    Write_Output_Pin(NEWKER_TOOL_7_GPIO_Port, NEWKER_TOOL_7_Pin, GPIO_PIN_SET);
+    break;
+  case 8:
+    Write_Output_Pin(NEWKER_TOOL_8_GPIO_Port, NEWKER_TOOL_8_Pin, GPIO_PIN_SET);
+    break;
+  default:
+    break; // Tidak melakukan apa-apa jika tool tidak valid
+  }
+}
+
+/**
+ * @brief Memutar ATC menggunakan PWM.
+ */
+static void ATC_Rotate(ATCRotationDirection_t direction)
+{
+  if (direction == ATC_NO_ROTATION)
+    return;
+
+  // Set arah motor dengan inversi
+  GPIO_PinState dir_state = (direction == ATC_CW) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+  HAL_GPIO_WritePin(STEPPER_DIR_GPIO_Port, STEPPER_DIR_Pin, g_settings.invert_direction ? !dir_state : dir_state);
+
+  // Aktifkan motor dengan inversi
+  GPIO_PinState ena_state = g_settings.invert_enable ? GPIO_PIN_SET : GPIO_PIN_RESET;
+  HAL_GPIO_WritePin(STEPPER_ENA_GPIO_Port, STEPPER_ENA_Pin, ena_state);
+  osDelay(10);
+
+  uint8_t initial_tool = Read_Tool_Position();
+  printf("ATC Rotating %s from tool %d...\r\n", (direction == ATC_CW) ? "CW" : "CCW", initial_tool);
+
+  ATC_Start_Rotation_PWM(g_settings.stepper_speed_hz);
+
+  // Tunggu sampai ada perubahan pada sensor tool (timeout 5 detik)
+  if (osSemaphoreAcquire(ToolChangeSemaHandle, 5000) != osOK)
+  {
+    printf("Error: ATC Rotation timeout!\r\n");
+  }
+  else
+  {
+    g_current_tool = Read_Tool_Position();
+    Update_Newker_Tool_Output(g_current_tool);
+    printf("ATC Rotation finished. Current tool: %d\r\n", g_current_tool);
+  }
+
+  ATC_Stop_Rotation_PWM();
+
+  // Matikan motor
+  ena_state = g_settings.invert_enable ? GPIO_PIN_RESET : GPIO_PIN_SET;
+  HAL_GPIO_WritePin(STEPPER_ENA_GPIO_Port, STEPPER_ENA_Pin, ena_state);
+}
+
+/**
  * @brief GPIO EXTI callback.
  */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
+  ATCRotationDirection_t direction = ATC_NO_ROTATION;
+  GPIO_PinState pin_state;
 
-  else if (GPIO_Pin == PROXY_LOCK_Pin)
+  // Debounce sederhana
+  osDelay(5);
+
+  switch (GPIO_Pin)
   {
-    // Memberi sinyal bahwa status lock telah berubah
+  case IN_NEWKER_T_MIN_Pin:
+    pin_state = Read_Input_Pin(IN_NEWKER_T_MIN_GPIO_Port, GPIO_Pin);
+    if (pin_state == GPIO_PIN_SET)
+    { // Aktif saat ditekan
+      direction = ATC_CW;
+      osMessageQueuePut(ATCRotationQueueHandle, &direction, 0U, 0U);
+    }
+    break;
+  case IN_NEWKER_T_PLUS_Pin:
+    pin_state = Read_Input_Pin(IN_NEWKER_T_PLUS_GPIO_Port, GPIO_Pin);
+    if (pin_state == GPIO_PIN_SET)
+    {
+      direction = ATC_CCW;
+      osMessageQueuePut(ATCRotationQueueHandle, &direction, 0U, 0U);
+    }
+    break;
+  case PROXY_LOCK_Pin:
     osSemaphoreRelease(ATCLockSemaHandle);
-  }
-  else if (GPIO_Pin == PROXY_POSITION_Pin)
-  {
-    // Memberi sinyal bahwa ATC berada di posisi yang benar
+    break;
+  case PROXY_POSITION_Pin:
     osSemaphoreRelease(ATCPositionSemaHandle);
+    break;
+  case PROXY_TOOL_A_Pin:
+  case PROXY_TOOL_B_Pin:
+  case PROXY_TOOL_C_Pin:
+  case PROXY_TOOL_D_Pin:
+    osSemaphoreRelease(ToolChangeSemaHandle);
+    break;
+    // Tambahkan case untuk IN_NEWKER_TOK jika perlu
   }
 }
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartAtcTask */
@@ -648,65 +693,30 @@ void StartAtcTask(void *argument)
   /* init code for USB_DEVICE */
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 5 */
-  printf("ATC Task Started.\r\n");
+  printf("\r\nATC Controller Ready.\r\n");
+  printf("Kirim '$$' untuk melihat pengaturan, '$P' untuk pinout.\r\n");
 
-  // Inisialisasi status awal
   g_atc_lock_status = Get_Lock_Status();
   g_current_tool = Read_Tool_Position();
   Update_Newker_Tool_Output(g_current_tool);
-  printf("Initial state: Lock=%s, Tool=%d\r\n",
-         (g_atc_lock_status == ATC_LOCKED) ? "LOCKED" : "UNLOCKED",
-         g_current_tool);
+  printf("Initial state: Lock=%s, Tool=%d\r\n", (g_atc_lock_status == ATC_LOCKED) ? "LOCKED" : "UNLOCKED", g_current_tool);
 
   ATCRotationDirection_t rotation_cmd;
   /* Infinite loop */
   for (;;)
   {
-    // Cek apakah ada perintah rotasi dari interrupt
-    if (osMessageQueueGet(ATCRotationQueueHandle, &rotation_cmd, NULL, 10) == osOK)
+    if (osMessageQueueGet(ATCRotationQueueHandle, &rotation_cmd, NULL, osWaitForever) == osOK)
     {
-      // 1. Pastikan ATC dalam keadaan terkunci sebelum memulai
       if (g_atc_lock_status != ATC_LOCKED)
       {
-        printf("Warning: ATC is not locked. Attempting to lock first.\r\n");
+        printf("Warning: ATC is not locked. Locking first.\r\n");
         ATC_Lock();
       }
-
-      // 2. Jika sudah terkunci, buka kuncinya
       if (g_atc_lock_status == ATC_LOCKED)
-      {
         ATC_Unlock();
-      }
-
-      // 3. Jika sudah tidak terkunci, lakukan rotasi
       if (g_atc_lock_status == ATC_UNLOCKED)
-      {
         ATC_Rotate(rotation_cmd);
-      }
-
-      // 4. Setelah rotasi selesai, kunci kembali ATC
       ATC_Lock();
-    }
-
-    // Logika untuk IN_NEWKER_TOK bisa ditambahkan di sini
-    // Contoh: jika IN_NEWKER_TOK aktif, lakukan lock/unlock
-    if (HAL_GPIO_ReadPin(IN_NEWKER_TOK_GPIO_Port, IN_NEWKER_TOK_Pin) == GPIO_PIN_RESET)
-    {
-      osDelay(20); // Debounce
-      if (HAL_GPIO_ReadPin(IN_NEWKER_TOK_GPIO_Port, IN_NEWKER_TOK_Pin) == GPIO_PIN_RESET)
-      {
-        if (g_atc_lock_status == ATC_LOCKED)
-        {
-          ATC_Unlock();
-        }
-        else
-        {
-          ATC_Lock();
-        }
-        // Tunggu sampai pin dilepas untuk menghindari eksekusi berulang
-        while (HAL_GPIO_ReadPin(IN_NEWKER_TOK_GPIO_Port, IN_NEWKER_TOK_Pin) == GPIO_PIN_RESET)
-          ;
-      }
     }
   }
   /* USER CODE END 5 */

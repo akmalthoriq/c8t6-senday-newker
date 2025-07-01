@@ -1,0 +1,72 @@
+#ifndef __SETTINGS_H
+#define __SETTINGS_H
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+#include "stm32f1xx_hal.h"
+#include <stdbool.h>
+
+// Alamat Flash untuk menyimpan pengaturan.
+// Untuk STM32F103C8T6 (64KB Flash), halaman terakhir dimulai di 0x0800FC00.
+// Ukuran halaman adalah 1KB.
+#define SETTINGS_FLASH_PAGE_ADDRESS 0x0800FC00
+#define SETTINGS_MAGIC_NUMBER 0xDEADBEEF
+
+    // Struktur untuk menyimpan semua pengaturan yang dapat dikonfigurasi
+    typedef struct
+    {
+        uint32_t magic_number;     // Untuk validasi data di flash
+        bool invert_input;         // $1: Membalik logika semua input (Active HIGH/LOW)
+        bool invert_output;        // $2: Membalik logika semua output (Active HIGH/LOW)
+        bool invert_direction;     // $3: Membalik putaran motor stepper
+        bool invert_enable;        // $5: Membalik sinyal enable stepper (Active HIGH/LOW)
+        uint16_t stepper_speed_hz; // $6: Kecepatan stepper dalam Hz (frekuensi pulsa)
+        // Tambahkan pengaturan lain di sini jika perlu
+    } Settings_t;
+
+    // Deklarasi variabel global untuk pengaturan
+    extern Settings_t g_settings;
+
+    /**
+     * @brief Menginisialisasi pengaturan.
+     * Membaca dari Flash jika ada, jika tidak, muat default dan simpan ke Flash.
+     */
+    void Settings_Init(void);
+
+    /**
+     * @brief Membaca pengaturan dari Flash Memory.
+     * @retval true jika berhasil membaca dan magic number cocok, false jika tidak.
+     */
+    bool Flash_Read_Settings(void);
+
+    /**
+     * @brief Menulis pengaturan saat ini ke Flash Memory.
+     * @retval HAL_StatusTypeDef status dari operasi penulisan.
+     */
+    HAL_StatusTypeDef Flash_Write_Settings(void);
+
+    /**
+     * @brief Memproses perintah serial yang diterima.
+     * @param buf Buffer berisi data yang diterima.
+     * @param len Panjang data.
+     */
+    void Process_Serial_Command(uint8_t *buf, uint32_t len);
+
+    /**
+     * @brief Mencetak semua pengaturan saat ini ke port serial.
+     */
+    void Print_Settings(void);
+
+    /**
+     * @brief Mencetak semua pin yang digunakan dan keterangannya.
+     */
+    void Print_Pins(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* __SETTINGS_H */
