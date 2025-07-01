@@ -24,7 +24,8 @@ extern "C"
         bool invert_direction;     // $3: Membalik putaran motor stepper
         bool invert_enable;        // $5: Membalik sinyal enable stepper (Active HIGH/LOW)
         uint16_t stepper_speed_hz; // $6: Kecepatan stepper dalam Hz (frekuensi pulsa)
-        // Tambahkan pengaturan lain di sini jika perlu
+        uint16_t timeout_ms;       // $7: Timeout untuk setiap operasi (unlock, rotate, lock)
+        uint16_t padding;          // Padding untuk memastikan ukuran kelipatan 4 byte
     } Settings_t;
 
     // Deklarasi variabel global untuk pengaturan
@@ -35,12 +36,6 @@ extern "C"
      * Membaca dari Flash jika ada, jika tidak, muat default dan simpan ke Flash.
      */
     void Settings_Init(void);
-
-    /**
-     * @brief Membaca pengaturan dari Flash Memory.
-     * @retval true jika berhasil membaca dan magic number cocok, false jika tidak.
-     */
-    bool Flash_Read_Settings(void);
 
     /**
      * @brief Menulis pengaturan saat ini ke Flash Memory.

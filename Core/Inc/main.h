@@ -23,8 +23,7 @@
 #define __MAIN_H
 
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
 
 /* Includes ------------------------------------------------------------------*/
@@ -32,7 +31,6 @@ extern "C"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <stdbool.h>
 #include "settings.h"
 /* USER CODE END Includes */
 
@@ -45,6 +43,22 @@ typedef enum {
 typedef enum {
 	ATC_LOCKED, ATC_UNLOCKED
 } ATCLockState_t;
+
+/**
+ * @brief State (keadaan) untuk state machine ATC dalam super-loop.
+ * Menggantikan logika task RTOS yang bersifat blocking.
+ */
+typedef enum
+{
+	ATC_STATE_IDLE,			   // Menunggu perintah baru
+	ATC_STATE_UNLOCKING_START, // Memulai proses unlock
+	ATC_STATE_UNLOCKING_WAIT,  // Menunggu sinyal unlock selesai
+	ATC_STATE_ROTATING_START,  // Memulai proses rotasi
+	ATC_STATE_ROTATING_WAIT,   // Menunggu sinyal rotasi selesai
+	ATC_STATE_LOCKING_START,   // Memulai proses lock
+	ATC_STATE_LOCKING_WAIT,	   // Menunggu sinyal lock selesai
+	ATC_STATE_TIMEOUT_ERROR	   // Terjadi error karena timeout
+} ATC_State_t;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -63,7 +77,7 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-// void USB_CDC_RxHandler(uint8_t *Buf, uint32_t Len);
+void USB_CDC_RxHandler(uint8_t *Buf, uint32_t Len);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

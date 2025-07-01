@@ -47,30 +47,30 @@ static void Flash_Read_Data(uint32_t address, uint32_t *data, uint32_t num_words
 
 void Settings_Init(void)
 {
-    if (Flash_Read_Settings() && g_settings.magic_number == SETTINGS_MAGIC_NUMBER)
+    // Baca data dari alamat flash yang ditentukan
+    Flash_Read_Data(SETTINGS_FLASH_PAGE_ADDRESS, (uint32_t *)&g_settings, sizeof(Settings_t) / 4);
+
+    // Cek apakah data valid menggunakan magic number
+    if (g_settings.magic_number == SETTINGS_MAGIC_NUMBER)
     {
         printf("Settings loaded from Flash.\r\n");
     }
     else
     {
         printf("No valid settings found in Flash. Loading defaults.\r\n");
-        // Muat nilai default
+        // Muat nilai default jika tidak ada pengaturan yang valid
         g_settings.magic_number = SETTINGS_MAGIC_NUMBER;
-        g_settings.invert_input = false;     // $1=0
-        g_settings.invert_output = false;    // $2=0
-        g_settings.invert_direction = false; // $3=0
-        g_settings.invert_enable = false;    // $5=0 (Aktif LOW)
-        g_settings.stepper_speed_hz = 1000;  // $6=1000 (1 kHz)
+        g_settings.invert_input = false;
+        g_settings.invert_output = false;
+        g_settings.invert_direction = false;
+        g_settings.invert_enable = false;
+        g_settings.stepper_speed_hz = 1000;
+        g_settings.timeout_ms = 3000;
+        g_settings.padding = 0;
 
-        // Tulis default ke flash
+        // Tulis nilai default ke flash untuk penggunaan berikutnya
         Flash_Write_Settings();
     }
-}
-
-bool Flash_Read_Settings(void)
-{
-    Flash_Read_Data(SETTINGS_FLASH_PAGE_ADDRESS, (uint32_t *)&g_settings, sizeof(Settings_t) / 4);
-    return true;
 }
 
 HAL_StatusTypeDef Flash_Write_Settings(void)
@@ -86,27 +86,25 @@ void Print_Settings(void)
     printf("$3=%d (invert_direction)\r\n", g_settings.invert_direction);
     printf("$5=%d (invert_enable)\r\n", g_settings.invert_enable);
     printf("$6=%d (stepper_speed_hz)\r\n", g_settings.stepper_speed_hz);
+    printf("$7=%d (timeout_ms)\r\n", g_settings.timeout_ms);
     printf("--------------------\r\n");
 }
 
 void Print_Pins(void)
 {
-    printf("--- Pinout ---\r\n");
-    printf("IN_NEWKER_T_MIN (CW)  : PB0\r\n");
-    printf("IN_NEWKER_T_POS (CCW) : PB1\r\n");
-    printf("IN_NEWKER_TOK         : PB12\r\n");
-    printf("STEPPER_PULSE (PWM)   : PA0 (TIM2_CH1)\r\n");
-    printf("STEPPER_DIR           : PA1\r\n");
-    printf("STEPPER_ENA           : PA2\r\n");
-    printf("OUT_ATC_LOCK          : PB6\r\n");
-    printf("PROXY_POSITION        : PB7\r\n");
-    printf("PROXY_LOCK            : PB8\r\n");
-    printf("PROXY_TOOL_A          : PB5\r\n");
-    printf("PROXY_TOOL_B          : PB4\r\n");
-    printf("PROXY_TOOL_C          : PB3\r\n");
-    printf("PROXY_TOOL_D          : PA15\r\n");
-    printf("NEWKER_TOOL_1..8      : PC4..PC11\r\n");
-    printf("--------------\r\n");
+    printf("--- Pinout (sesuai main.h) ---\r\n");
+    printf("IN_NEWKER_T_MIN (CW)  : PB14\r\n");
+    printf("IN_NEWKER_T_PLUS (CCW): PB13\r\n");
+    printf("STEPPER_PULSE (PWM)   : PA8 (TIM1_CH1)\r\n");
+    printf("STEPPER_DIR           : PA9\r\n");
+    printf("STEPPER_ENA           : PA10\r\n");
+    printf("OUT_ATC_LOCK          : PB15\r\n");
+    printf("PROXY_POSITION        : PB6\r\n");
+    printf("PROXY_LOCK            : PB7\r\n");
+    printf("PROXY_TOOL_A-D        : PB5, PB4, PB3, PA15\r\n");
+    printf("NEWKER_TOOL_1-7       : PA1-PA7\r\n");
+    printf("NEWKER_TOOL_8         : PB0\r\n");
+    printf("------------------------------\r\n");
 }
 
 void Process_Serial_Command(uint8_t *buf, uint32_t len)
@@ -114,10 +112,10 @@ void Process_Serial_Command(uint8_t *buf, uint32_t len)
     if (len < 2)
         return;
 
-    // Pastikan buffer adalah null-terminated string
     char cmd_buffer[32];
-    strncpy(cmd_buffer, (char *)buf, len < 31 ? len : 31);
-    cmd_buffer[len] = '\0';
+    uint32_t copy_len = len < 31 ? len : 31;
+    strncpy(cmd_buffer, (char *)buf, copy_len);
+    cmd_buffer[copy_len] = '\0';
 
     if (strncmp(cmd_buffer, "$$", 2) == 0)
     {
@@ -151,6 +149,9 @@ void Process_Serial_Command(uint8_t *buf, uint32_t len)
             case 6:
                 g_settings.stepper_speed_hz = value;
                 break;
+            case 7:
+                g_settings.timeout_ms = value;
+                break;
             default:
                 changed = false;
                 printf("Error: Unknown setting $%d\r\n", setting_num);
@@ -160,7 +161,7 @@ void Process_Serial_Command(uint8_t *buf, uint32_t len)
             {
                 if (Flash_Write_Settings() == HAL_OK)
                 {
-                    printf("[OK] Setting $%d changed to %d and saved to Flash.\r\n", setting_num, value);
+                    printf("[OK] Setting $%d changed to %d and saved.\r\n", setting_num, value);
                 }
                 else
                 {
