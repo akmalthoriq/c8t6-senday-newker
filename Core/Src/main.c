@@ -54,6 +54,7 @@ TIM_HandleTypeDef htim1;
 // Variabel status global ATC
 volatile ATCLockState_t g_atc_lock_status = ATC_LOCKED;
 volatile uint8_t g_current_tool = 0;
+volatile uint8_t g_target_tool = 0; // Untuk perintah 'Go to Tool'
 
 // Variabel untuk State Machine
 volatile ATC_State_t g_atc_state = ATC_STATE_IDLE;
@@ -78,6 +79,7 @@ static void ATC_Stop_Rotation_PWM(void);
 static GPIO_PinState Read_Input_Pin(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin);
 static void Write_Output_Pin(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin, GPIO_PinState PinState);
 static uint8_t Read_Tool_Position(void);
+static void Poll_Tool_Position(void);
 static void Update_Newker_Tool_Output(uint8_t tool_number);
 static ATCLockState_t Get_Lock_Status(void);
 void ATC_Process_StateMachine(void);
@@ -93,9 +95,9 @@ int _write(int file, char *ptr, int len)
 /* USER CODE END 0 */
 
 /**
- * @brief  The application entry point.
- * @retval int
- */
+  * @brief  The application entry point.
+  * @retval int
+  */
 int main(void)
 {
 
@@ -142,6 +144,12 @@ int main(void)
   while (1)
   {
     ATC_Process_StateMachine();
+
+    // Jalankan polling posisi tool hanya saat sistem IDLE
+    if (g_atc_state == ATC_STATE_IDLE)
+    {
+      Poll_Tool_Position();
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -150,9 +158,9 @@ int main(void)
 }
 
 /**
- * @brief System Clock Configuration
- * @retval None
- */
+  * @brief System Clock Configuration
+  * @retval None
+  */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
@@ -160,8 +168,8 @@ void SystemClock_Config(void)
   RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
-   * in the RCC_OscInitTypeDef structure.
-   */
+  * in the RCC_OscInitTypeDef structure.
+  */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
@@ -175,8 +183,9 @@ void SystemClock_Config(void)
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-   */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
@@ -195,10 +204,10 @@ void SystemClock_Config(void)
 }
 
 /**
- * @brief TIM1 Initialization Function
- * @param None
- * @retval None
- */
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_TIM1_Init(void)
 {
 
@@ -266,13 +275,14 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 2 */
   HAL_TIM_MspPostInit(&htim1);
+
 }
 
 /**
- * @brief GPIO Initialization Function
- * @param None
- * @retval None
- */
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -287,10 +297,12 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, NEWKER_TOOL_1_Pin | NEWKER_TOOL_2_Pin | NEWKER_TOOL_3_Pin | NEWKER_TOOL_4_Pin | NEWKER_TOOL_5_Pin | NEWKER_TOOL_6_Pin | NEWKER_TOOL_7_Pin | STEPPER_DIR_Pin | STEPPER_ENA_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, NEWKER_TOOL_1_Pin|NEWKER_TOOL_2_Pin|NEWKER_TOOL_3_Pin|NEWKER_TOOL_4_Pin
+                          |NEWKER_TOOL_5_Pin|NEWKER_TOOL_6_Pin|NEWKER_TOOL_7_Pin|STEPPER_DIR_Pin
+                          |STEPPER_ENA_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, NEWKER_TOOL_8_Pin | USER_LED_Pin | OUT_ATC_LOCK_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, NEWKER_TOOL_8_Pin|USER_LED_Pin|OUT_ATC_LOCK_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : USER_BTN_Pin */
   GPIO_InitStruct.Pin = USER_BTN_Pin;
@@ -301,35 +313,38 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pins : NEWKER_TOOL_1_Pin NEWKER_TOOL_2_Pin NEWKER_TOOL_3_Pin NEWKER_TOOL_4_Pin
                            NEWKER_TOOL_5_Pin NEWKER_TOOL_6_Pin NEWKER_TOOL_7_Pin STEPPER_DIR_Pin
                            STEPPER_ENA_Pin */
-  GPIO_InitStruct.Pin = NEWKER_TOOL_1_Pin | NEWKER_TOOL_2_Pin | NEWKER_TOOL_3_Pin | NEWKER_TOOL_4_Pin | NEWKER_TOOL_5_Pin | NEWKER_TOOL_6_Pin | NEWKER_TOOL_7_Pin | STEPPER_DIR_Pin | STEPPER_ENA_Pin;
+  GPIO_InitStruct.Pin = NEWKER_TOOL_1_Pin|NEWKER_TOOL_2_Pin|NEWKER_TOOL_3_Pin|NEWKER_TOOL_4_Pin
+                          |NEWKER_TOOL_5_Pin|NEWKER_TOOL_6_Pin|NEWKER_TOOL_7_Pin|STEPPER_DIR_Pin
+                          |STEPPER_ENA_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : NEWKER_TOOL_8_Pin USER_LED_Pin OUT_ATC_LOCK_Pin */
-  GPIO_InitStruct.Pin = NEWKER_TOOL_8_Pin | USER_LED_Pin | OUT_ATC_LOCK_Pin;
+  GPIO_InitStruct.Pin = NEWKER_TOOL_8_Pin|USER_LED_Pin|OUT_ATC_LOCK_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pins : IN_NEWKER_TOK_Pin IN_NEWKER_T_PLUS_Pin IN_NEWKER_T_MIN_Pin */
-  GPIO_InitStruct.Pin = IN_NEWKER_TOK_Pin | IN_NEWKER_T_PLUS_Pin | IN_NEWKER_T_MIN_Pin;
+  GPIO_InitStruct.Pin = IN_NEWKER_TOK_Pin|IN_NEWKER_T_PLUS_Pin|IN_NEWKER_T_MIN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PROXY_TOOL_D_Pin */
   GPIO_InitStruct.Pin = PROXY_TOOL_D_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(PROXY_TOOL_D_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PROXY_TOOL_C_Pin PROXY_TOOL_B_Pin PROXY_TOOL_A_Pin PROXY_POSITION_Pin
                            PROXY_LOCK_Pin */
-  GPIO_InitStruct.Pin = PROXY_TOOL_C_Pin | PROXY_TOOL_B_Pin | PROXY_TOOL_A_Pin | PROXY_POSITION_Pin | PROXY_LOCK_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pin = PROXY_TOOL_C_Pin|PROXY_TOOL_B_Pin|PROXY_TOOL_A_Pin|PROXY_POSITION_Pin
+                          |PROXY_LOCK_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
@@ -352,31 +367,115 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
 /**
- * @brief Handler untuk data yang diterima dari USB CDC.
- * PENTING: Fungsi ini harus dipanggil dari dalam CDC_Receive_FS() di file usbd_cdc_if.c
+ * @brief  Secara berkala memeriksa posisi tool dan melaporkan jika ada perubahan.
  */
-void USB_CDC_RxHandler(uint8_t *Buf, uint32_t Len)
+static void Poll_Tool_Position(void)
 {
-  Process_Serial_Command(Buf, Len);
+  static uint8_t last_reported_tool = 0;
+
+  // Untuk mencegah pembacaan yang terlalu cepat, bisa ditambahkan delay kecil
+  // atau menggunakan timer jika diperlukan, namun untuk polling sederhana ini cukup.
+
+  uint8_t new_tool_pos = Read_Tool_Position();
+
+  if (new_tool_pos != last_reported_tool)
+  {
+    g_current_tool = new_tool_pos;
+    Update_Newker_Tool_Output(g_current_tool);
+    printf("Position Updated -> Tool: %d\r\n", g_current_tool);
+    last_reported_tool = g_current_tool;
+  }
+}
+// --- Implementasi Fungsi Kontrol Manual ---
+void ATC_Manual_Rotate(ATCRotationDirection_t direction)
+{
+  if (g_atc_state != ATC_STATE_IDLE)
+  {
+    printf("Error: ATC is busy. Cannot start manual rotation.\r\n");
+    return;
+  }
+  if (g_atc_lock_status == ATC_LOCKED)
+  {
+    printf("Error: ATC is locked. Unlock first with 'U'.\r\n");
+    return;
+  }
+  printf("Manual Rotate: %s\r\n", (direction == ATC_CW) ? "CW" : "CCW");
+  GPIO_PinState dir_state = (direction == ATC_CW) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+  HAL_GPIO_WritePin(STEPPER_DIR_GPIO_Port, STEPPER_DIR_Pin, g_settings.invert_direction ? !dir_state : dir_state);
+  HAL_GPIO_WritePin(STEPPER_ENA_GPIO_Port, STEPPER_ENA_Pin, g_settings.invert_enable ? GPIO_PIN_SET : GPIO_PIN_RESET);
+  ATC_Start_Rotation_PWM(g_settings.stepper_speed_hz);
+}
+
+void ATC_Manual_Stop(void)
+{
+  printf("Manual Stop\r\n");
+  ATC_Stop_Rotation_PWM();
+  HAL_GPIO_WritePin(STEPPER_ENA_GPIO_Port, STEPPER_ENA_Pin, g_settings.invert_enable ? GPIO_PIN_RESET : GPIO_PIN_SET);
+}
+
+void ATC_Manual_Unlock(void)
+{
+  if (g_atc_state != ATC_STATE_IDLE)
+  {
+    printf("Error: ATC is busy.\r\n");
+    return;
+  }
+  printf("Manual Unlock...\r\n");
+  Write_Output_Pin(OUT_ATC_LOCK_GPIO_Port, OUT_ATC_LOCK_Pin, GPIO_PIN_SET);
+  g_lock_event = false;
+  g_timeout_start_tick = HAL_GetTick();
+  g_atc_state = ATC_STATE_MANUAL_UNLOCK_WAIT;
+}
+
+void ATC_Manual_Lock(void)
+{
+  if (g_atc_state != ATC_STATE_IDLE)
+  {
+    printf("Error: ATC is busy.\r\n");
+    return;
+  }
+  printf("Manual Lock...\r\n");
+  Write_Output_Pin(OUT_ATC_LOCK_GPIO_Port, OUT_ATC_LOCK_Pin, GPIO_PIN_RESET);
+  g_lock_event = false;
+  g_timeout_start_tick = HAL_GetTick();
+  g_atc_state = ATC_STATE_MANUAL_LOCK_WAIT;
+}
+
+void ATC_GoToTool(uint8_t target_tool)
+{
+  if (g_atc_state != ATC_STATE_IDLE)
+  {
+    printf("Error: ATC is busy.\r\n");
+    return;
+  }
+  if (target_tool == g_current_tool)
+  {
+    printf("Already at tool %d.\r\n", target_tool);
+    return;
+  }
+  g_target_tool = target_tool;
+  g_atc_state = ATC_STATE_GOTO_START;
 }
 
 /**
  * @brief Fungsi utama yang menjalankan state machine ATC.
  */
+
 void ATC_Process_StateMachine(void)
 {
-  if (g_atc_state == ATC_STATE_UNLOCKING_WAIT ||
-      g_atc_state == ATC_STATE_ROTATING_WAIT ||
-      g_atc_state == ATC_STATE_LOCKING_WAIT)
+  // Cek timeout untuk state yang menunggu event, jika diaktifkan
+  if (g_settings.timeout_enabled &&
+      (g_atc_state == ATC_STATE_AUTO_UNLOCK_WAIT || g_atc_state == ATC_STATE_AUTO_ROTATING_WAIT ||
+       g_atc_state == ATC_STATE_AUTO_LOCK_WAIT || g_atc_state == ATC_STATE_MANUAL_LOCK_WAIT ||
+       g_atc_state == ATC_STATE_MANUAL_UNLOCK_WAIT))
   {
+
     if ((HAL_GetTick() - g_timeout_start_tick) > g_settings.timeout_ms)
     {
       printf("Error: Timeout in state %d\r\n", g_atc_state);
-      ATC_Stop_Rotation_PWM();
+      ATC_Manual_Stop();
       Write_Output_Pin(OUT_ATC_LOCK_GPIO_Port, OUT_ATC_LOCK_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(STEPPER_ENA_GPIO_Port, STEPPER_ENA_Pin, g_settings.invert_enable ? GPIO_PIN_RESET : GPIO_PIN_SET);
       g_atc_state = ATC_STATE_TIMEOUT_ERROR;
     }
   }
@@ -386,78 +485,99 @@ void ATC_Process_StateMachine(void)
   case ATC_STATE_IDLE:
     if (g_rotation_command != ATC_NO_ROTATION)
     {
-      printf("Command received. Starting Unlock sequence.\r\n");
-      g_atc_state = ATC_STATE_UNLOCKING_START;
+      g_atc_state = ATC_STATE_AUTO_UNLOCK_START;
     }
     break;
 
-  case ATC_STATE_UNLOCKING_START:
-    if (Get_Lock_Status() == ATC_UNLOCKED)
-    {
-      printf("ATC already unlocked. Skipping to rotation.\r\n");
-      g_atc_state = ATC_STATE_ROTATING_START;
-      break;
-    }
-    printf("ATC Unlocking...\r\n");
+  // --- Siklus Otomatis (dari input pin) ---
+  case ATC_STATE_AUTO_UNLOCK_START:
+    printf("Auto-cycle: Unlocking...\r\n");
     Write_Output_Pin(OUT_ATC_LOCK_GPIO_Port, OUT_ATC_LOCK_Pin, GPIO_PIN_SET);
     g_lock_event = false;
     g_timeout_start_tick = HAL_GetTick();
-    g_atc_state = ATC_STATE_UNLOCKING_WAIT;
+    g_atc_state = ATC_STATE_AUTO_UNLOCK_WAIT;
     break;
-
-  case ATC_STATE_UNLOCKING_WAIT:
+  case ATC_STATE_AUTO_UNLOCK_WAIT:
     if (g_lock_event)
     {
       g_lock_event = false;
       g_atc_lock_status = ATC_UNLOCKED;
-      printf("ATC Unlocked successfully.\r\n");
-      g_atc_state = ATC_STATE_ROTATING_START;
+      g_atc_state = ATC_STATE_AUTO_ROTATING_START;
     }
     break;
-
-  case ATC_STATE_ROTATING_START:
-  {
-    printf("ATC Rotating %s...\r\n", (g_rotation_command == ATC_CW) ? "CW" : "CCW");
-    GPIO_PinState dir_state = (g_rotation_command == ATC_CW) ? GPIO_PIN_SET : GPIO_PIN_RESET;
-    HAL_GPIO_WritePin(STEPPER_DIR_GPIO_Port, STEPPER_DIR_Pin, g_settings.invert_direction ? !dir_state : dir_state);
-    HAL_GPIO_WritePin(STEPPER_ENA_GPIO_Port, STEPPER_ENA_Pin, g_settings.invert_enable ? GPIO_PIN_SET : GPIO_PIN_RESET);
-    HAL_Delay(10);
-
+  case ATC_STATE_AUTO_ROTATING_START:
+    ATC_Manual_Rotate(g_rotation_command);
     g_tool_change_event = false;
     g_timeout_start_tick = HAL_GetTick();
-    ATC_Start_Rotation_PWM(g_settings.stepper_speed_hz);
-    g_atc_state = ATC_STATE_ROTATING_WAIT;
-  }
-  break;
-
-  case ATC_STATE_ROTATING_WAIT:
+    g_atc_state = ATC_STATE_AUTO_ROTATING_WAIT;
+    break;
+  case ATC_STATE_AUTO_ROTATING_WAIT:
     if (g_tool_change_event)
     {
       g_tool_change_event = false;
-      ATC_Stop_Rotation_PWM();
-      HAL_GPIO_WritePin(STEPPER_ENA_GPIO_Port, STEPPER_ENA_Pin, g_settings.invert_enable ? GPIO_PIN_RESET : GPIO_PIN_SET);
+      ATC_Manual_Stop();
       g_current_tool = Read_Tool_Position();
       Update_Newker_Tool_Output(g_current_tool);
-      printf("Rotation finished. Current tool: %d\r\n", g_current_tool);
+      printf("Auto-cycle: Rotation finished. Tool: %d\r\n", g_current_tool);
       g_rotation_command = ATC_NO_ROTATION;
-      g_atc_state = ATC_STATE_LOCKING_START;
+      g_atc_state = ATC_STATE_AUTO_LOCK_START;
     }
     break;
-
-  case ATC_STATE_LOCKING_START:
-    printf("ATC Locking...\r\n");
+  case ATC_STATE_AUTO_LOCK_START:
+    printf("Auto-cycle: Locking...\r\n");
     Write_Output_Pin(OUT_ATC_LOCK_GPIO_Port, OUT_ATC_LOCK_Pin, GPIO_PIN_RESET);
     g_lock_event = false;
     g_timeout_start_tick = HAL_GetTick();
-    g_atc_state = ATC_STATE_LOCKING_WAIT;
+    g_atc_state = ATC_STATE_AUTO_LOCK_WAIT;
     break;
-
-  case ATC_STATE_LOCKING_WAIT:
+  case ATC_STATE_AUTO_LOCK_WAIT:
     if (g_lock_event)
     {
       g_lock_event = false;
       g_atc_lock_status = ATC_LOCKED;
-      printf("ATC Locked successfully. Sequence complete.\r\n");
+      printf("Auto-cycle: Complete.\r\n");
+      g_atc_state = ATC_STATE_IDLE;
+    }
+    break;
+
+  // --- Siklus Go To Tool (dari serial) ---
+  case ATC_STATE_GOTO_START:
+    if (g_current_tool == g_target_tool)
+    {
+      printf("GoTo: Already at tool %d.\r\n", g_target_tool);
+      g_atc_state = ATC_STATE_IDLE;
+      break;
+    }
+    printf("GoTo: Moving to tool %d\r\n", g_target_tool);
+    // Tentukan arah putaran terdekat
+    int diff = g_target_tool - g_current_tool;
+    if (abs(diff) <= 4)
+    { // 8 total tools / 2
+      g_rotation_command = (diff > 0) ? ATC_CW : ATC_CCW;
+    }
+    else
+    {
+      g_rotation_command = (diff > 0) ? ATC_CCW : ATC_CW;
+    }
+    g_atc_state = ATC_STATE_AUTO_UNLOCK_START; // Memulai siklus otomatis
+    break;
+
+  // --- State Tunggu Manual ---
+  case ATC_STATE_MANUAL_UNLOCK_WAIT:
+    if (g_lock_event)
+    {
+      g_lock_event = false;
+      g_atc_lock_status = ATC_UNLOCKED;
+      printf("Manual Unlock successful.\r\n");
+      g_atc_state = ATC_STATE_IDLE;
+    }
+    break;
+  case ATC_STATE_MANUAL_LOCK_WAIT:
+    if (g_lock_event)
+    {
+      g_lock_event = false;
+      g_atc_lock_status = ATC_LOCKED;
+      printf("Manual Lock successful.\r\n");
       g_atc_state = ATC_STATE_IDLE;
     }
     break;
@@ -612,13 +732,13 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 /* USER CODE END 4 */
 
 /**
- * @brief  Period elapsed callback in non blocking mode
- * @note   This function is called  when TIM4 interrupt took place, inside
- * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
- * a global variable "uwTick" used as application time base.
- * @param  htim : TIM handle
- * @retval None
- */
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM4 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   /* USER CODE BEGIN Callback 0 */
@@ -634,9 +754,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 }
 
 /**
- * @brief  This function is executed in case of error occurrence.
- * @retval None
- */
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -650,14 +770,14 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef USE_FULL_ASSERT
+#ifdef  USE_FULL_ASSERT
 /**
- * @brief  Reports the name of the source file and the source line number
- *         where the assert_param error has occurred.
- * @param  file: pointer to the source file name
- * @param  line: assert_param error line source number
- * @retval None
- */
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */

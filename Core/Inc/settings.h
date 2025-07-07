@@ -25,6 +25,7 @@ extern "C"
         bool invert_enable;        // $5: Membalik sinyal enable stepper (Active HIGH/LOW)
         uint16_t stepper_speed_hz; // $6: Kecepatan stepper dalam Hz (frekuensi pulsa)
         uint16_t timeout_ms;       // $7: Timeout untuk setiap operasi (unlock, rotate, lock)
+        bool timeout_enabled;      // 1 byte. $8: Mengaktifkan/menonaktifkan timeout
         uint16_t padding;          // Padding untuk memastikan ukuran kelipatan 4 byte
     } Settings_t;
 

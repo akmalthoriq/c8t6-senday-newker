@@ -36,34 +36,56 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
-typedef enum {
-	ATC_NO_ROTATION, ATC_CW, ATC_CCW
-} ATCRotationDirection_t;
+	typedef enum
+	{
+		ATC_NO_ROTATION,
+		ATC_CW,
+		ATC_CCW
+	} ATCRotationDirection_t;
 
-typedef enum {
-	ATC_LOCKED, ATC_UNLOCKED
-} ATCLockState_t;
+	typedef enum
+	{
+		ATC_LOCKED,
+		ATC_UNLOCKED
+	} ATCLockState_t;
 
-/**
- * @brief State (keadaan) untuk state machine ATC dalam super-loop.
- * Menggantikan logika task RTOS yang bersifat blocking.
- */
-typedef enum
-{
-	ATC_STATE_IDLE,			   // Menunggu perintah baru
-	ATC_STATE_UNLOCKING_START, // Memulai proses unlock
-	ATC_STATE_UNLOCKING_WAIT,  // Menunggu sinyal unlock selesai
-	ATC_STATE_ROTATING_START,  // Memulai proses rotasi
-	ATC_STATE_ROTATING_WAIT,   // Menunggu sinyal rotasi selesai
-	ATC_STATE_LOCKING_START,   // Memulai proses lock
-	ATC_STATE_LOCKING_WAIT,	   // Menunggu sinyal lock selesai
-	ATC_STATE_TIMEOUT_ERROR	   // Terjadi error karena timeout
-} ATC_State_t;
+	/**
+	 * @brief State (keadaan) untuk state machine ATC dalam super-loop.
+	 */
+	typedef enum
+	{
+		ATC_STATE_IDLE, // Menunggu perintah baru
+
+		// State untuk siklus otomatis
+		ATC_STATE_AUTO_UNLOCK_START,
+		ATC_STATE_AUTO_UNLOCK_WAIT,
+		ATC_STATE_AUTO_ROTATING_START,
+		ATC_STATE_AUTO_ROTATING_WAIT,
+		ATC_STATE_AUTO_LOCK_START,
+		ATC_STATE_AUTO_LOCK_WAIT,
+
+		// State untuk siklus "Go to Tool"
+		ATC_STATE_GOTO_START,
+
+		// State untuk operasi manual
+		ATC_STATE_MANUAL_UNLOCK_WAIT,
+		ATC_STATE_MANUAL_LOCK_WAIT,
+
+		ATC_STATE_TIMEOUT_ERROR
+	} ATC_State_t;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
+	extern volatile uint8_t g_current_tool;
+	// Fungsi Kontrol Manual
+	void ATC_Manual_Rotate(ATCRotationDirection_t direction);
+	void ATC_Manual_Stop(void);
+	void ATC_Manual_Lock(void);
+	void ATC_Manual_Unlock(void);
 
+	// Fungsi Go to Tool
+	void ATC_GoToTool(uint8_t target_tool);
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
@@ -77,7 +99,7 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-void USB_CDC_RxHandler(uint8_t *Buf, uint32_t Len);
+// void USB_CDC_RxHandler(uint8_t *Buf, uint32_t Len);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
