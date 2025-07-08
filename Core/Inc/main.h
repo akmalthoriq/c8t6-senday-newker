@@ -23,7 +23,8 @@
 #define __MAIN_H
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 /* Includes ------------------------------------------------------------------*/
@@ -32,16 +33,22 @@ extern "C" {
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "settings.h"
-/* USER CODE END Includes */
+	/* USER CODE END Includes */
 
-/* Exported types ------------------------------------------------------------*/
-/* USER CODE BEGIN ET */
+	/* Exported types ------------------------------------------------------------*/
+	/* USER CODE BEGIN ET */
 	typedef enum
 	{
 		ATC_NO_ROTATION,
 		ATC_CW,
 		ATC_CCW
 	} ATCRotationDirection_t;
+
+	typedef enum
+	{
+		ATC_ROTATION_MANUAL, // Rotasi manual
+		ATC_ROTATION_AUTO	 // Rotasi otomatis
+	} ATCRotationMode_t;
 
 	typedef enum
 	{
@@ -73,33 +80,38 @@ extern "C" {
 
 		ATC_STATE_TIMEOUT_ERROR
 	} ATC_State_t;
-/* USER CODE END ET */
+	/* USER CODE END ET */
 
-/* Exported constants --------------------------------------------------------*/
-/* USER CODE BEGIN EC */
+	/* Exported constants --------------------------------------------------------*/
+	/* USER CODE BEGIN EC */
 	extern volatile uint8_t g_current_tool;
 	// Fungsi Kontrol Manual
-	void ATC_Manual_Rotate(ATCRotationDirection_t direction);
-	void ATC_Manual_Stop(void);
+	void ATC_Rotate(ATCRotationDirection_t direction, ATCRotationMode_t mode);
+	void ATC_Stop(void);
 	void ATC_Manual_Lock(void);
 	void ATC_Manual_Unlock(void);
 
 	// Fungsi Go to Tool
 	void ATC_GoToTool(uint8_t target_tool);
-/* USER CODE END EC */
+	/* USER CODE END EC */
 
-/* Exported macro ------------------------------------------------------------*/
-/* USER CODE BEGIN EM */
+	/* Exported macro ------------------------------------------------------------*/
+	/* USER CODE BEGIN EM */
 
-/* USER CODE END EM */
+	/* USER CODE END EM */
 
-void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
+	void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 
-/* Exported functions prototypes ---------------------------------------------*/
-void Error_Handler(void);
+	/* Exported functions prototypes ---------------------------------------------*/
+	void Error_Handler(void);
 
-/* USER CODE BEGIN EFP */
-// void USB_CDC_RxHandler(uint8_t *Buf, uint32_t Len);
+	/* USER CODE BEGIN EFP */
+	/**
+	 * @brief Memproses perintah serial yang diterima.
+	 * @param buf Buffer berisi data yang diterima.
+	 * @param len Panjang data.
+	 */
+	void Process_Serial_Command(uint8_t *buf, uint32_t len);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
@@ -127,8 +139,10 @@ void Error_Handler(void);
 #define IN_NEWKER_TOK_GPIO_Port GPIOB
 #define IN_NEWKER_T_PLUS_Pin GPIO_PIN_13
 #define IN_NEWKER_T_PLUS_GPIO_Port GPIOB
+#define IN_NEWKER_T_PLUS_EXTI_IRQn EXTI15_10_IRQn
 #define IN_NEWKER_T_MIN_Pin GPIO_PIN_14
 #define IN_NEWKER_T_MIN_GPIO_Port GPIOB
+#define IN_NEWKER_T_MIN_EXTI_IRQn EXTI15_10_IRQn
 #define OUT_ATC_LOCK_Pin GPIO_PIN_15
 #define OUT_ATC_LOCK_GPIO_Port GPIOB
 #define STEPPER_PULSE_Pin GPIO_PIN_8
@@ -156,9 +170,9 @@ void Error_Handler(void);
 #define PROXY_LOCK_GPIO_Port GPIOB
 #define PROXY_LOCK_EXTI_IRQn EXTI9_5_IRQn
 
-/* USER CODE BEGIN Private defines */
+	/* USER CODE BEGIN Private defines */
 
-/* USER CODE END Private defines */
+	/* USER CODE END Private defines */
 
 #ifdef __cplusplus
 }

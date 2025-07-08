@@ -45,13 +45,6 @@ extern "C"
     HAL_StatusTypeDef Flash_Write_Settings(void);
 
     /**
-     * @brief Memproses perintah serial yang diterima.
-     * @param buf Buffer berisi data yang diterima.
-     * @param len Panjang data.
-     */
-    void Process_Serial_Command(uint8_t *buf, uint32_t len);
-
-    /**
      * @brief Mencetak semua pengaturan saat ini ke port serial.
      */
     void Print_Settings(void);
