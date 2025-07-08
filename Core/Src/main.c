@@ -754,10 +754,10 @@ static void Write_Output_Pin(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin, GPIO_PinSta
 static uint8_t Read_Tool_Position(void)
 {
   static uint8_t last_tool = 1; // Default ke 1 pada awal boot
-  bool a = Read_Input_Pin(PROXY_TOOL_A_GPIO_Port, PROXY_TOOL_A_Pin) == GPIO_PIN_SET;
-  bool b = Read_Input_Pin(PROXY_TOOL_B_GPIO_Port, PROXY_TOOL_B_Pin) == GPIO_PIN_SET;
-  bool c = Read_Input_Pin(PROXY_TOOL_C_GPIO_Port, PROXY_TOOL_C_Pin) == GPIO_PIN_SET;
-  bool d = Read_Input_Pin(PROXY_TOOL_D_GPIO_Port, PROXY_TOOL_D_Pin) == GPIO_PIN_SET;
+  bool a = Read_Input_Pin(PROXY_TOOL_A_GPIO_Port, PROXY_TOOL_A_Pin) == GPIO_PIN_RESET;
+  bool b = Read_Input_Pin(PROXY_TOOL_B_GPIO_Port, PROXY_TOOL_B_Pin) == GPIO_PIN_RESET;
+  bool c = Read_Input_Pin(PROXY_TOOL_C_GPIO_Port, PROXY_TOOL_C_Pin) == GPIO_PIN_RESET;
+  bool d = Read_Input_Pin(PROXY_TOOL_D_GPIO_Port, PROXY_TOOL_D_Pin) == GPIO_PIN_RESET;
   uint8_t tool = last_tool;
 
   if (!a && b && !c && !d)
