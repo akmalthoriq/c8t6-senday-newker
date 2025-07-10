@@ -71,6 +71,7 @@ void Settings_Init(void)
         g_settings.timeout_ms = 3000;
         g_settings.timeout_enabled = true; // Timeout aktif secara default
         g_settings.padding = 0;
+        g_settings.pause_ms = 1000;
 
         // Tulis nilai default ke flash untuk penggunaan berikutnya
         Flash_Write_Settings();
@@ -94,6 +95,7 @@ void Print_Settings(void)
     len += sprintf(buf + len, "$6=%d (stepper_speed_hz)\r\n", g_settings.stepper_speed_hz);
     len += sprintf(buf + len, "$7=%d (timeout_ms)\r\n", g_settings.timeout_ms);
     len += sprintf(buf + len, "$8=%d (timeout_enabled)\r\n", g_settings.timeout_enabled);
+    len += sprintf(buf + len, "$9=%ld (pause_ms)\r\n", g_settings.pause_ms);
     CDC_Transmit_FS((uint8_t*)buf, len);
 }
 

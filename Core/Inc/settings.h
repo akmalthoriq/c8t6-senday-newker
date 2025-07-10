@@ -27,6 +27,7 @@ extern "C"
         uint16_t timeout_ms;       // $7: Timeout untuk setiap operasi (unlock, rotate, lock)
         bool timeout_enabled;      // 1 byte. $8: Mengaktifkan/menonaktifkan timeout
         uint16_t padding;          // Padding untuk memastikan ukuran kelipatan 4 byte
+        uint32_t pause_ms;
     } Settings_t;
 
     // Deklarasi variabel global untuk pengaturan
